@@ -105,6 +105,7 @@ class RawHTTPServer:
     def route(self, request):
         if request.method == "GET":
             if request.path == "/" or request.path == "/index.html": return self.serve_static("index.html")
+            if request.path.startswith("/assets/"): return self.serve_static(request.path.lstrip("/"))
             if request.path == "/models": return self._handle_list_models()
         if request.method == "PUT" and request.path == "/state":
             return self._handle_update_state(request)
@@ -112,9 +113,20 @@ class RawHTTPServer:
 
     def serve_static(self, filename):
         path = filename if os.path.exists(filename) else os.path.join(self.config.STATIC_DIR, filename)
-        if not os.path.exists(path): return HTTPResponse(404, body="File not found")
+        if not os.path.exists(path) or os.path.isdir(path): return HTTPResponse(404, body="File not found")
+        
+        ext = os.path.splitext(filename)[1].lower()
+        content_type = {
+            ".html": "text/html",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".css": "text/css",
+            ".js": "application/javascript"
+        }.get(ext, "text/plain")
+        
         with open(path, 'rb') as f: content = f.read()
-        return HTTPResponse(200, content_type="text/html", body=content)
+        return HTTPResponse(200, content_type=content_type, body=content)
 
     def _handle_list_models(self):
         models = self.config.get_available_models()
