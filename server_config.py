@@ -8,7 +8,7 @@ class ServerConfig:
     MODELS_DIR: str = 'models'
     STATIC_DIR: str = 'static'
     MEDIA_DIR: str = 'media'
-    CONFIDENCE_THRESHOLD: float = 0.8
+    CONFIDENCE_THRESHOLD: float = 0.5
     
     def get_available_models(self):
         if not os.path.exists(self.MODELS_DIR):

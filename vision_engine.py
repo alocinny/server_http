@@ -80,8 +80,6 @@ class VisionEngine:
                             cv2.rectangle(frame, (left, top), (left+int(bw*x_factor), top+int(bh*y_factor)), (0, 255, 0), 2)
             except: pass
 
-        cv2.putText(frame, f"Model: {self.state.active_model}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         return frame
 
     def get_host_frame(self):
