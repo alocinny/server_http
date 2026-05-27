@@ -149,7 +149,7 @@
         }
 
         .video-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .video-wrap canvas { display: none; }
+        .video-wrap canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.01; pointer-events: none; }
 
         .overlay-top {
             position: absolute; top: 1rem; left: 1.5rem;
@@ -264,7 +264,7 @@
                     <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value" id="recStatusVal">Idle</span></div>
                 </div>
             </div>
-            <div class="panel"><div class="panel-body"><div class="info-note"><span class="info-icon">!</span><p>Recordings and snapshots are saved to your local downloads folder.</p></div></div></div>
+            <div class="panel"><div class="panel-body"><div class="info-note"><span class="info-icon">!</span><p>Snapshots go to downloads. Recordings are saved directly in the server's <b>media</b> folder.</p></div></div></div>
         </aside>
     </div>
 
@@ -321,40 +321,38 @@
             link.click();
         }
 
-        let isRecording = false, mediaRecorder = null, recordedChunks = [];
+        let isRecording = false;
         function toggleRecording() { isRecording ? stopRecording() : startRecording(); }
 
-        function startRecording() {
-            const canvas = recordCanvas;
-            canvas.width = streamImg.naturalWidth || 640;
-            canvas.height = streamImg.naturalHeight || 480;
-            const ctx = canvas.getContext('2d');
-            isRecording = true; recordedChunks = [];
-            document.getElementById('recIndicator').classList.add('active');
-            const btn = document.getElementById('recordBtn');
-            btn.textContent = 'Stop & Save'; btn.classList.add('btn-danger');
-            document.getElementById('recStatusVal').textContent = 'Active';
-
-            const loop = () => { if (isRecording) { ctx.drawImage(streamImg, 0, 0); requestAnimationFrame(loop); } };
-            loop();
-
-            mediaRecorder = new MediaRecorder(canvas.captureStream(15), { mimeType: 'video/webm' });
-            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-            mediaRecorder.onstop = () => {
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(new Blob(recordedChunks, { type: 'video/webm' }));
-                a.download = `rec_${Date.now()}.webm`;
-                a.click();
-            };
-            mediaRecorder.start();
+        async function startRecording() {
+            if (isRecording) return;
+            try {
+                const res = await fetch('/record/start', { method: 'POST' });
+                if (res.ok) {
+                    isRecording = true;
+                    document.getElementById('recIndicator').classList.add('active');
+                    const btn = document.getElementById('recordBtn');
+                    btn.textContent = 'Stop & Save'; btn.classList.add('btn-danger');
+                    document.getElementById('recStatusVal').textContent = 'Active';
+                } else {
+                    console.error("Failed to start recording on server");
+                }
+            } catch (err) { console.error("Network error starting recording", err); }
         }
 
-        function stopRecording() {
-            isRecording = false; mediaRecorder.stop();
-            document.getElementById('recIndicator').classList.remove('active');
-            const btn = document.getElementById('recordBtn');
-            btn.textContent = 'Record Video'; btn.classList.remove('btn-danger');
-            document.getElementById('recStatusVal').textContent = '—';
+        async function stopRecording() {
+            if (!isRecording) return;
+            try {
+                const res = await fetch('/record/stop', { method: 'POST' });
+                if (res.ok) {
+                    isRecording = false;
+                    document.getElementById('recIndicator').classList.remove('active');
+                    const btn = document.getElementById('recordBtn');
+                    btn.textContent = 'Record Video'; btn.classList.remove('btn-danger');
+                    document.getElementById('recStatusVal').textContent = '—';
+                    alert('recording saved on media folder');
+                }
+            } catch (err) { console.error("Network error stopping recording", err); }
         }
 
         loadModels();

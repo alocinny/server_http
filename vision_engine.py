@@ -2,6 +2,7 @@ import cv2
 import os
 import time
 import numpy as np
+import threading
 from server_config import AppState
 
 try:
@@ -15,7 +16,18 @@ class VisionEngine:
         self.state = state
         self.host_cap = None
         self.model = None
-        self._load_model()
+        self.video_writer = None
+        self.is_recording = False
+        self.video_path = None
+        self.video_fps = 30.0
+        self.current_frame = None
+        self.running = True
+        self.lock = threading.Lock()
+        self._load_model() 
+
+        self.capture_thread = threading.Thread(target=self._capture_loop,
+                                               daemon=True)
+        self.capture_thread.start()
 
     def _load_model(self):
         model_path = os.path.join(self.state.config.MODELS_DIR, self.state.active_model)
@@ -83,12 +95,10 @@ class VisionEngine:
         return frame
 
     def get_host_frame(self):
-        if self.host_cap is None or not self.host_cap.isOpened():
-            self.host_cap = cv2.VideoCapture(0)
-        ret, frame = self.host_cap.read()
-        if not ret: return None
-        return self.process_frame(frame)
-
+        with self.lock:
+            if self.current_frame is not None:
+                return self.current_frame.copy()
+        return None
     def stop_host_camera(self):
         if self.host_cap:
             self.host_cap.release()
@@ -102,5 +112,72 @@ class VisionEngine:
         cv2.imwrite(path, frame)
         return filename
 
+    def start_recording(self, fps=None):
+        with self.lock:
+            if self.is_recording: return None
+            
+            filename = f"video_{int(time.time())}.mp4"
+            self.video_path = os.path.join(self.state.config.MEDIA_DIR, filename)
+            # Use dynamically tracked FPS if fps is not provided
+            self.video_fps = fps if fps is not None else getattr(self, 'actual_fps', 20.0)
+            self.is_recording = True
+            
+            print(f"[*] Gravação solicitada: {filename} a {self.video_fps:.1f} FPS")
+            return filename
+
+    def stop_recording(self):
+        with self.lock:
+            if self.is_recording:
+                if self.video_writer is not None:
+                    self.video_writer.release()
+                    self.video_writer = None
+                self.is_recording = False
+                self.video_path = None
+                print("[*] Gravação finalizada de forma segura.")
+                
+    def _capture_loop(self):
+        self.host_cap = cv2.VideoCapture(0)
+        
+        last_time = time.time()
+        self.actual_fps = 20.0
+        fps_alpha = 0.05
+        
+        while self.running:
+            ret, frame = self.host_cap.read()
+            if not ret:
+                time.sleep(0.01)
+                continue
+                
+            processed_frame = self.process_frame(frame)
+            
+            current_time = time.time()
+            dt = current_time - last_time
+            last_time = current_time
+            
+            if dt > 0:
+                loop_fps = 1.0 / dt
+                self.actual_fps = (1 - fps_alpha) * self.actual_fps + fps_alpha * loop_fps
+            
+            with self.lock:
+                self.current_frame = processed_frame.copy() if processed_frame is not None else None
+                
+                if self.is_recording:
+                    if self.video_writer is None and self.video_path is not None:
+                        h, w = processed_frame.shape[:2]
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        safe_fps = max(5.0, self.video_fps)
+                        self.video_writer = cv2.VideoWriter(self.video_path, fourcc, safe_fps, (w, h))
+
+                    if self.video_writer is not None:
+                        self.video_writer.write(processed_frame)
+                    
+            time.sleep(0.01)
+            
+        if self.host_cap:
+            self.host_cap.release()
+
     def release(self):
-        self.stop_host_camera()
+        self.running = False
+        self.stop_recording()
+        if hasattr(self, 'capture_thread') and self.capture_thread.is_alive():
+            self.capture_thread.join(timeout=1.0)

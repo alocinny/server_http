@@ -200,6 +200,17 @@ class RawHTTPServer:
         if request.method == "PUT" and request.path == "/state":
             return self._handle_update_state(request)
 
+        if request.method == "POST":
+            if request.path == "/record/start":
+                filename = self.vision.start_recording()
+                if filename:
+                    return HTTPResponse(200, content_type="application/json", body=json.dumps({"status": "recording_started", "filename": filename}))
+                else:
+                    return HTTPResponse(400, body=json.dumps({"status": "already_recording"}))
+            elif request.path == "/record/stop":
+                self.vision.stop_recording()
+                return HTTPResponse(200, content_type="application/json", body=json.dumps({"status": "recording_stopped"}))
+
         return HTTPResponse(404, body="Not Found")
 
     def serve_static(self, filename):
